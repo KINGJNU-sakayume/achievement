@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>업적 라이브러리 · Life Hub</title>
+</head>
+<body>
+<p>Life Hub 연결을 마무리하는 중…</p>
+<script>
+  // Life Hub returns here. Hand the one-time result to the app in this tab's sessionStorage,
+  // drop it from the address, and open the app, which finishes the sign-in.
+  try { sessionStorage.setItem('achievement.lifehub.callback.v1', location.search); } catch (e) { /* the app reports it */ }
+  location.replace(new URL('../#/', location.href).href);
+</script>
+</body>
+</html>

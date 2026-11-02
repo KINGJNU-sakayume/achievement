@@ -6,6 +6,7 @@ import { useConfirm } from '@/hooks/useConfirm.jsx'
 import { todayStr } from '@/utils/dates.js'
 import { formatNumber, relativeDay } from '@/utils/formatters.js'
 import { DownloadIcon, InfoIcon, TrashIcon, UploadIcon } from './Icons.jsx'
+import { LifeHubSettings } from '@/lifehub/LifeHub.jsx'
 
 function formatBytes(bytes) {
   if (bytes < 1024 * 1024) return `${formatNumber(Math.max(1, Math.round(bytes / 1024)))}KB`
@@ -116,6 +117,10 @@ export default function SettingsModal({ onClose }) {
             onChange={e => { handleImport(e.target.files?.[0]); e.target.value = '' }}
           />
         </div>
+      </Section>
+
+      <Section title="Life Hub 연결">
+        <LifeHubSettings />
       </Section>
 
       <Section title="저장 공간">

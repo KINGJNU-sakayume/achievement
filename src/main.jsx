@@ -5,6 +5,7 @@ import App from './App.jsx'
 import { AppProvider } from './context/AppContext.jsx'
 import { ToastProvider } from './context/ToastContext.jsx'
 import { UIProvider } from './context/UIContext.jsx'
+import { LifeHubProvider } from './lifehub/LifeHub.jsx'
 import AppErrorBoundary from './components/AppErrorBoundary.jsx'
 import './index.css'
 
@@ -15,9 +16,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <ToastProvider>
           <AppProvider>
-            <UIProvider>
-              <App />
-            </UIProvider>
+            <LifeHubProvider>
+              <UIProvider>
+                <App />
+              </UIProvider>
+            </LifeHubProvider>
           </AppProvider>
         </ToastProvider>
       </HashRouter>

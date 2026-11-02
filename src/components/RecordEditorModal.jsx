@@ -37,7 +37,20 @@ function startingValues(categoryId, prefs, achievements, categories) {
   }
 }
 
-function initialForm(record, categoryId, prefs, achievements, categories) {
+function initialForm(record, categoryId, prefs, achievements, categories, draft) {
+  if (draft) {
+    // A proposal (Life Hub): its values as given; a missing unit falls back to the category's.
+    const start = startingValues(draft.categoryId, prefs, achievements, categories)
+    return {
+      categoryId: draft.categoryId ?? null,
+      date: draft.date,
+      value: draft.value != null ? String(draft.value) : '',
+      unit: draft.unit ?? (draft.value != null ? start.unit : ''),
+      memo: draft.memo ?? '',
+      photoUrl: '',
+      tags: [...(draft.tags ?? [])],
+    }
+  }
   if (record) {
     return {
       categoryId: record.categoryId,
@@ -168,8 +181,9 @@ function ImpactPreview({ impact, isEditing }) {
 
 /**
  * Add a record (`record` null) or edit one. `categoryId` preselects a category.
+ * `draft` pre-fills a new record from a proposal (it keeps the draft's ID); `onSaved` gets the saved record.
  */
-export default function RecordEditorModal({ record = null, categoryId = null, onClose }) {
+export default function RecordEditorModal({ record = null, categoryId = null, draft = null, draftNote = null, onSaved = null, onClose }) {
   const {
     categories, records, achievements, prefs,
     addRecord, updateRecord, deleteRecord, setCategoryDefaults,
@@ -179,7 +193,7 @@ export default function RecordEditorModal({ record = null, categoryId = null, on
   const uid = useId()
   const isEditing = record != null
 
-  const [initial] = useState(() => initialForm(record, categoryId, prefs, achievements, categories))
+  const [initial] = useState(() => initialForm(record, categoryId, prefs, achievements, categories, isEditing ? null : draft))
   const [form, setForm] = useState(initial)
   const [touched, setTouched] = useState({ unit: false, tags: false })
   const [showAllSuggestions, setShowAllSuggestions] = useState(false)
@@ -302,12 +316,13 @@ export default function RecordEditorModal({ record = null, categoryId = null, on
       updateRecord({ ...record, ...input })
       toast.success('기록을 수정했어요.')
     } else {
-      const saved = addRecord(input)
+      const saved = addRecord(draft ? { ...input, id: draft.id } : input)
       // Remember the unit the first time one is used in a category.
       if (saved.unit && !prefs.categoryDefaults[saved.categoryId]?.defaultUnit) {
         setCategoryDefaults(saved.categoryId, { defaultUnit: saved.unit })
       }
       toast.success('기록을 저장했어요.')
+      onSaved?.(saved)
     }
     onClose()
   }
@@ -352,6 +367,9 @@ export default function RecordEditorModal({ record = null, categoryId = null, on
       }
     >
       <form id={`${uid}-form`} onSubmit={handleSubmit} className="space-y-5" noValidate>
+        {draftNote && !isEditing && (
+          <p className="rounded-xl bg-accent-soft px-3.5 py-3 text-sm text-accent-ink" role="note">{draftNote}</p>
+        )}
         {/* Category */}
         <div>
           <label className="field-label" htmlFor={`${uid}-category`}>카테고리</label>
