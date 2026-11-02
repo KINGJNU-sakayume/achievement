@@ -13,7 +13,7 @@ export function UIProvider({ children }) {
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   const api = useMemo(() => ({
-    /** openRecordEditor({ categoryId }) to add, openRecordEditor({ record }) to edit */
+    /** openRecordEditor({ categoryId }) to add, ({ record }) to edit, ({ draft, draftNote, onSaved }) to review a proposal */
     openRecordEditor: (options = {}) => setRecordEditor({ key: Date.now(), ...options }),
     openAchievement: (id) => setAchievementId(id),
     openSettings: () => setSettingsOpen(true),
@@ -27,6 +27,9 @@ export function UIProvider({ children }) {
           key={recordEditor.key}
           record={recordEditor.record ?? null}
           categoryId={recordEditor.categoryId ?? null}
+          draft={recordEditor.draft ?? null}
+          draftNote={recordEditor.draftNote ?? null}
+          onSaved={recordEditor.onSaved ?? null}
           onClose={() => setRecordEditor(null)}
         />
       )}

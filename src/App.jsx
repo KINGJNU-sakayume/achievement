@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import ToastStack from './components/ToastStack.jsx'
+import { LifeHubBanner } from './lifehub/LifeHub.jsx'
 import { useApp } from './context/AppContext.jsx'
 import { useUI } from './context/UIContext.jsx'
 import { AlertIcon, HomeIcon, InfoIcon, LogoMark, MedalIcon, NotebookIcon, SettingsIcon, TrophyIcon, XIcon } from './components/Icons.jsx'
@@ -115,6 +116,7 @@ export default function App() {
     <div className="min-h-dvh flex flex-col">
       <TopBar />
       <StorageBanner />
+      <LifeHubBanner />
       <main className="flex-1 flex flex-col pb-[calc(var(--tabbar-h)+env(safe-area-inset-bottom))] md:pb-0">
         <Suspense fallback={<div className="flex-1" />}>
           <Routes>

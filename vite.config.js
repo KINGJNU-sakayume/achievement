@@ -6,8 +6,8 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-// GitHub Pages serves the app from /<repository>/
-const BASE = '/cautious-palm-tree/'
+// GitHub Pages serves the app from /<repository>/ (the repository was renamed from cautious-palm-tree)
+const BASE = '/achievement/'
 
 export default defineConfig({
   base: BASE,
@@ -37,6 +37,8 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         navigateFallback: `${BASE}index.html`,
         navigateFallbackAllowlist: [new RegExp(`^${BASE}`)],
+        // The Life Hub callback page is its own document, never the app shell.
+        navigateFallbackDenylist: [new RegExp(`^${BASE}lifehub/`)],
         runtimeCaching: [
           {
             // Pretendard web font: cache the stylesheet and the subsets actually used.

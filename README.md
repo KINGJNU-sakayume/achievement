@@ -18,7 +18,7 @@ Node.js 18 이상이 필요합니다.
 
 ```bash
 npm install
-npm run dev      # 개발 서버 (http://localhost:5173/cautious-palm-tree/)
+npm run dev      # 개발 서버 (http://localhost:5173/achievement/)
 npm test         # 업적 엔진·저장 형식·기본 업적 목록 테스트 (Vitest)
 npm run build    # 배포용 빌드 → dist/
 npm run catalog:snapshot  # 기본 업적 목록을 바꿀 때 (docs/achievement-system.md 8장)
@@ -37,6 +37,15 @@ npm run catalog:snapshot  # 기본 업적 목록을 바꿀 때 (docs/achievement
   브라우저 저장 공간(보통 5MB 안팎)이 가득 차면 화면 위에 안내가 뜹니다.
 - 여러 탭을 열어 두어도 변경 내용이 서로 맞춰집니다.
 - 이전 버전(저장 형식 v1)의 데이터는 처음 열 때 자동으로 옮겨집니다. 자세한 내용은 아래 문서를 참고하세요.
+
+## Life Hub로 기록 제안 받기 (선택)
+
+Claude에게 "오늘 한강에서 5km 뛰었어"처럼 말하면, Claude가 [Life Hub](https://github.com/KINGJNU-sakayume/life-hub)에 **기록 제안**을 남기고 이 앱이 그것을 받아 옵니다.
+
+- **설정 → Life Hub 연결**에서 한 번 연결합니다(배포된 주소에서만). 이 앱은 `achievement:inbox` 권한만 받아 자기 제안만 읽습니다.
+- 제안은 화면 위에 "Claude가 제안한 기록"으로 나타납니다. **확인**을 누르면 평소의 기록하기 화면이 제안 내용으로 채워져 열리고(업적 미리보기 포함), **저장**해야 기록됩니다. 카테고리 이름이 정확히 맞지 않으면 직접 고릅니다.
+- **거절**하면 기록은 바뀌지 않고 Life Hub에 거절로 알려집니다. 제안으로 저장한 기록은 ID가 `lh_`로 시작해, 저장 결과를 기록 자체에서 다시 알 수 있습니다.
+- 서버에는 제안만 있고, 기록은 지금처럼 이 브라우저에만 저장됩니다.
 
 ## 업적은 어떻게 달성되나요?
 
