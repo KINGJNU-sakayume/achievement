@@ -3,8 +3,11 @@
 // - Connect: OAuth 2.1 authorization code + PKCE (S256). The app is a public client identified by
 //   public/lifehub-client.json and receives only an `achievement:inbox` token for /achievement.
 //   Life Hub returns to /lifehub/ (public/lifehub/index.html), which hands the result to the app.
-// - Proposals (`activity_record`) are fetched live and validated again here. Nothing is recorded until
-//   the owner saves the pre-filled record editor.
+// - Proposals (`activity_record`, and `achievement_definition` for a custom achievement) are fetched live
+//   and validated again here. Nothing is saved until the owner saves it here, or approved it in a Claude card
+//   (Life Hub cards stage 4) and the category is certain: then it is saved on sync, with the setting
+//   「Claude에서 승인된 항목 자동 반영」 (default on).
+// - The owner's category names (ids, names, top-level group) are shared for the card's category picker.
 // - A record saved from a proposal gets the ID `lh_<base64url(key)>`, so the receipt can always be
 //   rebuilt from the records themselves. Receipts and rejections are retried until answered.
 
@@ -22,6 +25,8 @@ const TOKENS_KEY = 'achievement.lifehub.tokens.v1'
 const PENDING_AUTH_KEY = 'achievement.lifehub.pending-auth.v1'
 const OUTCOMES_KEY = 'achievement.lifehub.outcomes.v1'
 const REJECTIONS_KEY = 'achievement.lifehub.rejections.v1'
+const AUTO_APPLY_KEY = 'achievement.lifehub.auto-apply.v1'
+const CATEGORY_REFS_KEY = 'achievement.lifehub.category-refs.v1'
 const AUTH_MAX_AGE_MS = 10 * 60 * 1000
 
 export function browserDeps() {
@@ -49,17 +54,15 @@ const only = (v, keys) => Object.keys(v).every(k => keys.includes(k))
 const text = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max
 const optText = (v, max) => v === undefined || text(v, max)
 // Keys short enough that `lh_<base64url(key)>` stays a valid hub entity ID (≤ 128 chars).
-const KEY = /^(claude|chatgpt|manual):[A-Za-z0-9_.:-]{8,80}$/
+const KEY = /^(claude|chatgpt|codex|manual):[A-Za-z0-9_.:-]{8,80}$/
 export const validDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) &&
   !Number.isNaN(new Date(v).getTime()) && new Date(v).toISOString().slice(0, 10) === v
 
-/** One item from the hub as a proposal, or null when it does not match the contract. */
-export function parseProposal(item) {
-  if (!isObj(item) || typeof item.key !== 'string' || !KEY.test(item.key) || !isObj(item.candidate)) return null
-  const c = item.candidate
-  if (c.schema_version !== 1 || c.candidate_type !== 'activity_record' || typeof c.source !== 'string' ||
-    `${c.source}:${String(c.idempotency_key)}` !== item.key || typeof c.created_at !== 'string' || !isObj(c.payload)) return null
-  const p = c.payload
+export const TIERS = ['bronze', 'silver', 'gold', 'platinum', 'diamond']
+const CONDITIONS = ['count', 'total', 'streak', 'tag', 'tag_count']
+const whole = v => Number.isInteger(v) && v >= 1 && v <= 100000
+
+function parseRecord(p) {
   if (!only(p, ['category', 'date', 'value', 'unit', 'tags', 'memo']) || !text(p.category, 60) || !validDate(p.date) ||
     !optText(p.unit, 20) || !optText(p.memo, 500)) return null
   if (p.value !== undefined && (typeof p.value !== 'number' || !Number.isFinite(p.value) || p.value < 0 || p.value > 1e9)) return null
@@ -67,14 +70,70 @@ export function parseProposal(item) {
   if (p.tags !== undefined && (!Array.isArray(p.tags) || p.tags.length === 0 || p.tags.length > 10 ||
     !p.tags.every(t => text(t, 30)) || new Set(p.tags.map(t => t.trim())).size !== p.tags.length)) return null
   return {
-    key: item.key,
-    createdAt: c.created_at,
+    kind: 'record',
     category: p.category.trim(),
     date: p.date,
     value: p.value ?? null,
     unit: p.unit?.trim() ?? null,
     tags: (p.tags ?? []).map(t => t.trim().replace(/^#+/, '')),
     memo: p.memo?.trim() ?? null,
+  }
+}
+
+function parseDefinition(p) {
+  if (!only(p, ['title', 'description', 'category', 'tier', 'condition_type', 'target', 'unit', 'tag']) || !text(p.title, 40) ||
+    !optText(p.description, 200) || !optText(p.category, 60) || !TIERS.includes(p.tier) || !CONDITIONS.includes(p.condition_type) ||
+    !optText(p.unit, 20) || !optText(p.tag, 30)) return null
+  const t = p.condition_type
+  const ok = t === 'total' ? typeof p.target === 'number' && Number.isFinite(p.target) && p.target > 0 && p.target <= 1e9 && p.unit !== undefined && p.tag === undefined
+    : p.unit !== undefined ? false
+      : t === 'tag' ? p.tag !== undefined && p.target === undefined
+        : t === 'tag_count' ? p.tag !== undefined && whole(p.target)
+          : p.tag === undefined && whole(p.target)
+  if (!ok) return null
+  return {
+    kind: 'achievement',
+    title: p.title.trim(),
+    description: p.description?.trim() ?? '',
+    category: p.category?.trim() ?? null,
+    tier: p.tier,
+    conditionType: t,
+    target: p.target ?? null,
+    unit: p.unit?.trim() ?? null,
+    tag: p.tag?.trim().replace(/^#+/, '') ?? null,
+  }
+}
+
+/**
+ * One item from the hub as a proposal, or null when it does not match the contract. The owner's edit from a
+ * Claude card (`final_candidate`) wins; `status` 'approved' means approved there (not saved yet).
+ */
+export function parseProposal(item) {
+  if (!isObj(item) || typeof item.key !== 'string' || !KEY.test(item.key)) return null
+  if (item.status !== undefined && item.status !== 'pending' && item.status !== 'approved') return null
+  const c = item.final_candidate ?? item.candidate
+  if (!isObj(c) || c.schema_version !== 1 || typeof c.source !== 'string' ||
+    `${c.source}:${String(c.idempotency_key)}` !== item.key || typeof c.created_at !== 'string' || !isObj(c.payload)) return null
+  const body = c.candidate_type === 'activity_record' ? parseRecord(c.payload)
+    : c.candidate_type === 'achievement_definition' ? parseDefinition(c.payload) : null
+  if (!body) return null
+  return {
+    key: item.key,
+    createdAt: c.created_at,
+    status: item.status === 'approved' ? 'approved' : 'pending',
+    needsAppReview: item.needs_app_review === true,
+    ...body,
+  }
+}
+
+/** The app's condition for a proposed achievement (see utils/achievementEvaluator.js). */
+export function conditionFor(p) {
+  switch (p.conditionType) {
+    case 'count': return { type: 'count', target: p.target }
+    case 'total': return { type: 'cumulative', target: p.target, unit: p.unit }
+    case 'streak': return { type: 'streak', target: p.target }
+    case 'tag': return { type: 'tag_match', tag: p.tag }
+    default: return { type: 'tag_count', tag: p.tag, target: p.target }
   }
 }
 
@@ -116,6 +175,41 @@ export function matchCategory(name, categories) {
   const wanted = norm(name)
   const loose = categories.filter(c => norm(c.name) === wanted)
   return loose.length === 1 ? loose[0].id : null
+}
+
+/** The category with exactly this name, or null (auto-apply never guesses; the editor may match loosely). */
+export function exactCategory(name, categories) {
+  const hits = categories.filter(c => c.name === name)
+  return hits.length === 1 ? hits[0].id : null
+}
+
+/** The achievement saved for an approved proposal (ID `lh_<key>`, like records). */
+export function achievementFor(proposal, categoryId) {
+  return {
+    id: recordIdFor(proposal.key),
+    title: proposal.title,
+    description: proposal.description,
+    categoryId,
+    tier: proposal.tier,
+    condition: conditionFor(proposal),
+    isHidden: false,
+  }
+}
+
+/**
+ * What may be saved without asking: approved in the Claude card, no last check asked, auto-apply on, and a
+ * category that is exactly one of the owner's (an achievement may have none). Returns
+ * { kind: 'record', draft } | { kind: 'achievement', achievement } | null.
+ */
+export function autoPlan(proposal, categories, autoApply) {
+  if (!autoApply || proposal.status !== 'approved' || proposal.needsAppReview) return null
+  if (proposal.kind === 'achievement') {
+    const categoryId = proposal.category === null ? null : exactCategory(proposal.category, categories)
+    if (proposal.category !== null && !categoryId) return null
+    return { kind: 'achievement', achievement: achievementFor(proposal, categoryId) }
+  }
+  const categoryId = exactCategory(proposal.category, categories)
+  return categoryId ? { kind: 'record', draft: { ...draftFor(proposal, categories), categoryId } } : null
 }
 
 /** What the record editor starts with for a proposal. */
@@ -255,21 +349,60 @@ export function rejectLocally(key, deps) {
   if (!list.includes(key)) deps.storage.setItem(REJECTIONS_KEY, JSON.stringify([...list, key]))
 }
 
-/** Records saved from proposals, as receipts: { key, recordId }. */
-export function receipts(records) {
+/** Records and achievements saved from proposals, as receipts: { key, recordId, entityType }. */
+export function receipts(records, achievements = []) {
   const out = []
   for (const r of records) {
     const key = keyOfRecord(r.id)
-    if (key) out.push({ key, recordId: r.id })
+    if (key) out.push({ key, recordId: r.id, entityType: 'activity_record' })
+  }
+  for (const a of achievements) {
+    const key = keyOfRecord(a.id)
+    if (key) out.push({ key, recordId: a.id, entityType: 'achievement_definition' })
   }
   return out
 }
 
+/** 「Claude에서 승인된 항목 자동 반영」: on unless turned off on this device. */
+export const autoApplyEnabled = deps => deps.storage.getItem(AUTO_APPLY_KEY) !== 'off'
+export function setAutoApply(deps, on) {
+  if (on) deps.storage.removeItem(AUTO_APPLY_KEY)
+  else deps.storage.setItem(AUTO_APPLY_KEY, 'off')
+}
+
+/** The owner's categories for the card picker: ids, names and the top-level name. Never records. */
+export function categoryRefs(categories) {
+  const byId = new Map(categories.map(c => [c.id, c]))
+  const top = c => {
+    const seen = new Set()
+    while (c.parentId && byId.has(c.parentId) && !seen.has(c.id)) { seen.add(c.id); c = byId.get(c.parentId) }
+    return c.name
+  }
+  return categories
+    .filter(c => /^[A-Za-z0-9_.:-]{1,64}$/.test(c.id) && typeof c.name === 'string' && c.name.trim())
+    .slice(0, 500)
+    .map(c => ({ id: c.id, label: c.name.trim().slice(0, 80), group: top(c).trim().slice(0, 40) || '기타' }))
+}
+
+/** Shares the category list when it changed (a newer revision wins on Life Hub; 409 = a newer one is there). */
+export async function uploadCategoryRefs(categories, deps) {
+  const items = categoryRefs(categories)
+  const body = JSON.stringify(items)
+  const last = readJson(deps.storage, CATEGORY_REFS_KEY)
+  if (!items.length || last?.body === body) return false
+  const revision = Math.max(deps.now(), (last?.revision ?? 0) + 1)
+  const response = await api(deps, 'PUT', '/refs/categories', { revision, items })
+  if (!response.ok && response.status !== 409) return false
+  deps.storage.setItem(CATEGORY_REFS_KEY, JSON.stringify({ revision, body }))
+  return true
+}
+
 /**
- * Sends receipts and rejections not yet answered, then fetches pending proposals that have not been
- * decided here. Returns { proposals, receiptsSent, rejectionsSent, conflicts, waiting }.
+ * Sends receipts and rejections not yet answered, shares the category list when it changed, then fetches
+ * open proposals (pending, or approved in a Claude card) not decided here. Saves nothing.
+ * Returns { proposals, receiptsSent, rejectionsSent, conflicts, waiting }.
  */
-export async function sync(records, deps) {
+export async function sync(records, deps, { achievements = [], categories = null } = {}) {
   const done = readJson(deps.storage, OUTCOMES_KEY) ?? {}
   const result = { proposals: [], receiptsSent: 0, rejectionsSent: 0, conflicts: 0, waiting: 0 }
   const record = (key, response, ok) => {
@@ -284,10 +417,10 @@ export async function sync(records, deps) {
     return response.ok
   }
   const decided = new Set()
-  for (const r of receipts(records)) {
+  for (const r of receipts(records, achievements)) {
     decided.add(r.key)
     if (done[r.key]) continue
-    const response = await api(deps, 'POST', '/receipts', { key: r.key, entity_type: 'activity_record', entity_id: r.recordId })
+    const response = await api(deps, 'POST', '/receipts', { key: r.key, entity_type: r.entityType, entity_id: r.recordId })
     if (record(r.key, response, 'confirmed')) result.receiptsSent++
   }
   for (const key of readJson(deps.storage, REJECTIONS_KEY) ?? []) {
@@ -295,7 +428,8 @@ export async function sync(records, deps) {
     if (done[key]) continue
     if (record(key, await api(deps, 'POST', '/rejections', { key }), 'rejected')) result.rejectionsSent++
   }
-  const response = await api(deps, 'GET', '/candidates?status=pending&limit=100')
+  if (categories) await uploadCategoryRefs(categories, deps).catch(() => false)
+  const response = await api(deps, 'GET', '/candidates?status=open&limit=100')
   if (!response.ok) throw new LifeHubError('server', `Life Hub 제안을 가져오지 못했어요 (${response.status})`)
   const body = await response.json().catch(() => null)
   if (!body || !Array.isArray(body.candidates)) throw new LifeHubError('server', 'Life Hub 응답 형식이 올바르지 않아요.')
