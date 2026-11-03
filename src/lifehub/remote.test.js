@@ -223,3 +223,23 @@ describe('category list for the card picker', () => {
     expect(puts[1].items.at(-1)).toEqual({ id: 'own-1', label: '클라이밍', group: '피트니스' })
   })
 })
+
+describe('category list after a 409', () => {
+  it('is not recorded as sent, and goes again with a later revision', async () => {
+    const puts = []
+    let status = 409
+    let now = 1_000_000
+    const deps = makeDeps((url, init) => (url.endsWith('/oauth/token') ? tokens() : (puts.push(JSON.parse(init.body).revision), json({}, status))))
+    deps.now = () => now
+    const state = new URL(await beginConnect(deps)).searchParams.get('state')
+    deps.session.setItem(CALLBACK_KEY, `?code=c&state=${state}`)
+    await completeStoredCallback(deps)
+    expect(await uploadCategoryRefs(categories, deps)).toBe(false)
+    now += 60_000
+    status = 200
+    expect(await uploadCategoryRefs(categories, deps)).toBe(true)
+    expect(await uploadCategoryRefs(categories, deps)).toBe(false)
+    expect(puts).toHaveLength(2)
+    expect(puts[1]).toBeGreaterThan(puts[0])
+  })
+})
