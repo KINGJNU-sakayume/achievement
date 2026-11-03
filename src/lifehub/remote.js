@@ -384,7 +384,10 @@ export function categoryRefs(categories) {
     .map(c => ({ id: c.id, label: c.name.trim().slice(0, 80), group: top(c).trim().slice(0, 40) || '기타' }))
 }
 
-/** Shares the category list when it changed (a newer revision wins on Life Hub; 409 = a newer one is there). */
+/**
+ * Shares the category list when it changed. A newer revision wins on Life Hub; a 409 (another device, or a clock
+ * ahead of ours, sent a later one) is not recorded as sent, so the next sync sends it again with a later time.
+ */
 export async function uploadCategoryRefs(categories, deps) {
   const items = categoryRefs(categories)
   const body = JSON.stringify(items)
@@ -392,7 +395,7 @@ export async function uploadCategoryRefs(categories, deps) {
   if (!items.length || last?.body === body) return false
   const revision = Math.max(deps.now(), (last?.revision ?? 0) + 1)
   const response = await api(deps, 'PUT', '/refs/categories', { revision, items })
-  if (!response.ok && response.status !== 409) return false
+  if (!response.ok) return false
   deps.storage.setItem(CATEGORY_REFS_KEY, JSON.stringify({ revision, body }))
   return true
 }
