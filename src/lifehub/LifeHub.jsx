@@ -3,7 +3,6 @@ import { useApp } from '@/context/AppContext.jsx'
 import { useUI } from '@/context/UIContext.jsx'
 import { formatNumber } from '@/utils/formatters.js'
 import { InfoIcon } from '@/components/Icons.jsx'
-import Switch from '@/components/Switch.jsx'
 import { tierLabel } from '@/constants/tiers.js'
 import {
   achievementFor, autoApplyEnabled, autoPlan, beginConnect, browserDeps, completeStoredCallback, connectAvailable,
@@ -11,7 +10,7 @@ import {
   setAutoApply as storeAutoApply, sync as syncHub,
 } from './remote.js'
 
-const LifeHubContext = createContext(null)
+export const LifeHubContext = createContext(null)
 const FOCUS_SYNC_MS = 60 * 1000
 
 /** One token exchange per page load, even when effects run twice (StrictMode). */
@@ -26,6 +25,12 @@ export function LifeHubProvider({ children }) {
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
+  // Connection needs the owner: the token was refused or expired (kept in memory only; no new storage key).
+  const [needsReconnect, setNeedsReconnect] = useState(false)
+  // Network or server trouble: the next sync tries again by itself.
+  const [retrying, setRetrying] = useState(false)
+  // A sign-in callback was handled (done or failed): the settings sheet opens to show the result.
+  const [callbackDone, setCallbackDone] = useState(false)
   const recordsRef = useRef(records)
   useEffect(() => { recordsRef.current = records }, [records])
   const achievementsRef = useRef(achievements)
@@ -40,6 +45,7 @@ export function LifeHubProvider({ children }) {
     lastSync.current = Date.now()
     setSyncing(true)
     setError(null)
+    setRetrying(false)
     try {
       const deps = browserDeps()
       const run = (moreRecords, moreAchievements) => syncHub([...recordsRef.current, ...moreRecords], deps, {
@@ -68,9 +74,13 @@ export function LifeHubProvider({ children }) {
     } catch (e) {
       if (e instanceof LifeHubError && e.kind === 'not_connected') {
         setConnected(false)
+        setNeedsReconnect(true)
         setProposals([])
+      } else if (e instanceof LifeHubError && (e.kind === 'network' || e.kind === 'server')) {
+        setRetrying(true)
+      } else {
+        setError(e instanceof Error ? e.message : '동기화하지 못했어요.')
       }
-      setError(e instanceof Error ? e.message : '동기화하지 못했어요.')
     } finally {
       setSyncing(false)
     }
@@ -84,11 +94,17 @@ export function LifeHubProvider({ children }) {
         if (!active) return
         if (done) {
           setConnected(true)
+          setNeedsReconnect(false)
           setNotice('Life Hub에 연결했어요.')
+          setCallbackDone(true)
         }
         sync()
       })
-      .catch(e => { if (active) setError(e instanceof Error ? e.message : 'Life Hub에 연결하지 못했어요.') })
+      .catch(e => {
+        if (!active) return
+        setError(e instanceof Error ? e.message : 'Life Hub에 연결하지 못했어요.')
+        setCallbackDone(true)
+      })
     return () => { active = false }
   }, [sync])
 
@@ -154,14 +170,18 @@ export function LifeHubProvider({ children }) {
   const disconnect = useCallback(() => {
     disconnectHub(browserDeps())
     setConnected(false)
+    setNeedsReconnect(false)
+    setRetrying(false)
     setProposals([])
     setNotice('Life Hub 연결을 해제했어요.')
   }, [])
 
+  const status = connected ? 'ok' : needsReconnect ? 'attention' : 'none'
+
   const value = useMemo(() => ({
-    connected, proposals, syncing, error, notice, canConnect: connectAvailable(window.location), autoApply, categories,
+    connected, status, retrying, callbackDone, proposals, syncing, error, notice, canConnect: connectAvailable(window.location), autoApply, categories,
     sync, reviewOptions, addAchievement, setAutoApply, reject, connect, disconnect, dismissNotice: () => setNotice(null),
-  }), [connected, proposals, syncing, error, notice, autoApply, categories, sync, reviewOptions, addAchievement, setAutoApply, reject, connect, disconnect])
+  }), [connected, status, retrying, callbackDone, proposals, syncing, error, notice, autoApply, categories, sync, reviewOptions, addAchievement, setAutoApply, reject, connect, disconnect])
 
   return <LifeHubContext.Provider value={value}>{children}</LifeHubContext.Provider>
 }
@@ -235,32 +255,61 @@ export function LifeHubBanner() {
   )
 }
 
-/** Settings section: connect, sync now, auto-apply, disconnect. */
-export function LifeHubSettings() {
-  const { connected, syncing, canConnect, connect, disconnect, sync, proposals, autoApply, setAutoApply } = useLifeHub()
+/** Once a sign-in callback has been handled, show the result in the settings sheet. Renders nothing. */
+export function LifeHubOpenSettingsOnCallback() {
+  const { callbackDone } = useLifeHub()
+  const { openSettings } = useUI()
+  useEffect(() => { if (callbackDone) openSettings() }, [callbackDone, openSettings])
+  return null
+}
+
+function StatusLine({ tone, children }) {
   return (
-    <>
-      <p className="text-sm text-ink-2 mb-3">
-        Claude에게 말한 활동을 Life Hub를 거쳐 기록 제안으로 받아요. 제안은 화면 위에 나타나고, 내용을 확인하고 저장해야 기록돼요.
-      </p>
-      {connected ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className="btn btn-secondary" disabled={syncing} onClick={() => sync()}>
-            {syncing ? '동기화 중…' : '지금 동기화'}
-          </button>
-          <button type="button" className="btn btn-ghost" onClick={disconnect}>연결 해제</button>
-          <span className="text-sm text-ink-3">검토할 제안 {formatNumber(proposals.length)}개</span>
-          <div className="w-full pt-2">
-            <Switch id="lifehub-auto-apply" checked={autoApply} onChange={setAutoApply} label="Claude에서 승인된 항목 자동 반영"
-              description="Claude 카드에서 승인한 기록·업적을 카테고리가 정확할 때 바로 저장해요." />
-          </div>
+    <p className="flex items-center gap-2 text-sm text-ink" role="status">
+      <span aria-hidden="true" className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${tone === 'warn' ? 'bg-warn' : 'bg-accent'}`} />
+      {children}
+    </p>
+  )
+}
+
+/** Settings section body (title: 「Life Hub」): connect, status, sync now, disconnect, auto-apply. */
+export function LifeHubSettings() {
+  const { connected, status, retrying, syncing, canConnect, connect, disconnect, sync, autoApply, setAutoApply } = useLifeHub()
+  if (status === 'attention') {
+    return (
+      <div className="space-y-3">
+        <StatusLine tone="warn">확인 필요</StatusLine>
+        <div className="rounded-xl bg-warn-soft px-3.5 py-3 text-sm text-ink space-y-2.5">
+          <p>Life Hub 연결이 끊겼습니다. 다시 연결해 주세요. 이 기기의 기록은 그대로입니다.</p>
+          <button type="button" className="btn btn-primary btn-sm" onClick={connect}>다시 연결</button>
         </div>
-      ) : (
-        <>
-          <button type="button" className="btn btn-primary" disabled={!canConnect} onClick={connect}>Life Hub 연결</button>
-          {!canConnect && <p className="field-hint">배포된 주소(kingjnu-sakayume.github.io/achievement)에서만 연결할 수 있어요.</p>}
-        </>
-      )}
-    </>
+        <button type="button" className="btn btn-secondary" onClick={disconnect}>연결 해제</button>
+      </div>
+    )
+  }
+  if (!connected) {
+    return (
+      <>
+        <p className="text-sm text-ink-2 mb-3">Claude가 제안한 기록을 받습니다.</p>
+        <button type="button" className="btn btn-primary" disabled={!canConnect} onClick={connect}>Life Hub 연결</button>
+        {!canConnect && <p className="field-hint">배포된 주소에서만 연결할 수 있어요.</p>}
+      </>
+    )
+  }
+  return (
+    <div className="space-y-3">
+      <StatusLine>{syncing ? '연결됨 · 동기화 중…' : retrying ? '연결됨 · 잠시 뒤 다시 시도' : '연결됨'}</StatusLine>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className="btn btn-secondary" disabled={syncing} onClick={() => sync()}>지금 동기화</button>
+        <button type="button" className="btn btn-secondary" onClick={disconnect}>연결 해제</button>
+      </div>
+      <label htmlFor="lifehub-auto-apply" className="flex items-start gap-2.5 cursor-pointer">
+        <input id="lifehub-auto-apply" type="checkbox" checked={autoApply} onChange={e => setAutoApply(e.target.checked)} className="mt-1 w-4 h-4 accent-accent" />
+        <span className="min-w-0">
+          <span className="block text-base text-ink">Claude에서 승인한 기록은 바로 반영</span>
+          <span className="block text-xs text-ink-3">Claude 카드에서 승인한 기록·업적을 카테고리가 정확할 때 바로 저장해요.</span>
+        </span>
+      </label>
+    </div>
   )
 }

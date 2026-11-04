@@ -119,7 +119,7 @@ export default function SettingsModal({ onClose }) {
         </div>
       </Section>
 
-      <Section title="Life Hub 연결">
+      <Section title="Life Hub">
         <LifeHubSettings />
       </Section>
 

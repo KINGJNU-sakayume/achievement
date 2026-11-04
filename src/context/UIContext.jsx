@@ -4,7 +4,7 @@ import AchievementDetailModal from '@/components/AchievementDetailModal.jsx'
 
 const SettingsModal = lazy(() => import('@/components/SettingsModal.jsx'))
 
-const UIContext = createContext(null)
+export const UIContext = createContext(null)
 
 /** App-wide sheets that any page (or a toast) can open. */
 export function UIProvider({ children }) {

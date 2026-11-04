@@ -1,10 +1,11 @@
 import React, { lazy, Suspense, useEffect } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import ToastStack from './components/ToastStack.jsx'
-import { LifeHubBanner } from './lifehub/LifeHub.jsx'
+import { LifeHubBanner, LifeHubOpenSettingsOnCallback, useLifeHub } from './lifehub/LifeHub.jsx'
+import SettingsButton from './components/SettingsButton.jsx'
 import { useApp } from './context/AppContext.jsx'
 import { useUI } from './context/UIContext.jsx'
-import { AlertIcon, HomeIcon, InfoIcon, LogoMark, MedalIcon, NotebookIcon, SettingsIcon, TrophyIcon, XIcon } from './components/Icons.jsx'
+import { AlertIcon, HomeIcon, InfoIcon, LogoMark, MedalIcon, NotebookIcon, TrophyIcon, XIcon } from './components/Icons.jsx'
 
 const Dashboard = lazy(() => import('./pages/Dashboard.jsx'))
 const RecordHub = lazy(() => import('./pages/RecordHub.jsx'))
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
 
 function TopBar() {
   const { openSettings } = useUI()
+  const { status } = useLifeHub()
   return (
     <header className="sticky top-0 z-30 h-14 bg-paper/90 backdrop-blur border-b border-line">
       <div className="h-full px-4 md:px-6 flex items-center gap-8">
@@ -44,9 +46,7 @@ function TopBar() {
           ))}
         </nav>
         <div className="flex-1" />
-        <button type="button" onClick={openSettings} className="icon-btn -mr-1.5" aria-label="설정 및 백업">
-          <SettingsIcon size={20} />
-        </button>
+        <SettingsButton attention={status === 'attention'} onClick={openSettings} />
       </div>
     </header>
   )
@@ -117,6 +117,7 @@ export default function App() {
       <TopBar />
       <StorageBanner />
       <LifeHubBanner />
+      <LifeHubOpenSettingsOnCallback />
       <main className="flex-1 flex flex-col pb-[calc(var(--tabbar-h)+env(safe-area-inset-bottom))] md:pb-0">
         <Suspense fallback={<div className="flex-1" />}>
           <Routes>
