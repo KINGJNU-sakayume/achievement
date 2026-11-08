@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "app": "achievement",
+  "generated_at": "2026-11-05T12:00:00.000Z",
+  "tiles": [
+    {
+      "id": "recent",
+      "name": "업적 · 최근 취득",
+      "tone": "type",
+      "form": "line",
+      "sizes": [
+        "1x1",
+        "2x1"
+      ],
+      "size": "2x1",
+      "default": true,
+      "href": "https://kingjnu-sakayume.github.io/achievement/",
+      "data": {
+        "label": "최근 취득",
+        "title": "누적 10km",
+        "sub": "실버 · 러닝 · 11/5"
+      }
+    },
+    {
+      "id": "trophy",
+      "name": "업적 · 트로피 칸",
+      "tone": "type",
+      "form": "cells",
+      "sizes": [
+        "2x1",
+        "4x1"
+      ],
+      "size": "2x1",
+      "default": true,
+      "href": "https://kingjnu-sakayume.github.io/achievement/",
+      "data": {
+        "label": "트로피 · 러닝",
+        "total": 3,
+        "filled": 2
+      }
+    }
+  ]
+}

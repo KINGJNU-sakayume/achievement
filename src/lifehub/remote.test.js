@@ -82,7 +82,7 @@ describe('connection', () => {
     const deps = makeDeps(url => (url.endsWith('/oauth/token') ? tokens() : json({}, 404)))
     const url = new URL(await beginConnect(deps))
     expect(Object.fromEntries(url.searchParams)).toMatchObject({
-      response_type: 'code', client_id: CLIENT_ID, redirect_uri: CALLBACK_URL, scope: 'achievement:inbox', resource: RESOURCE, code_challenge_method: 'S256',
+      response_type: 'code', client_id: CLIENT_ID, redirect_uri: CALLBACK_URL, scope: 'achievement:inbox achievement:board', resource: RESOURCE, code_challenge_method: 'S256',
     })
     expect(await completeStoredCallback(deps)).toBe(false)
     deps.session.setItem(CALLBACK_KEY, `?code=c1&state=${url.searchParams.get('state')}&iss=${encodeURIComponent(LIFEHUB_ORIGIN)}`)

@@ -1,7 +1,8 @@
 // 업적 라이브러리 ↔ Life Hub.
 //
 // - Connect: OAuth 2.1 authorization code + PKCE (S256). The app is a public client identified by
-//   public/lifehub-client.json and receives only an `achievement:inbox` token for /achievement.
+//   public/lifehub-client.json and receives `achievement:inbox` (proposals) and `achievement:board` (the board
+//   tile list, see src/board/) for /achievement.
 //   Life Hub returns to /lifehub/ (public/lifehub/index.html), which hands the result to the app.
 // - Proposals (`activity_record`, and `achievement_definition` for a custom achievement) are fetched live
 //   and validated again here. Nothing is saved until the owner saves it here, or approved it in a Claude card
@@ -16,7 +17,7 @@ export const APP_URL = 'https://kingjnu-sakayume.github.io/achievement/'
 export const CALLBACK_URL = APP_URL + 'lifehub/'
 export const CLIENT_ID = APP_URL + 'lifehub-client.json'
 export const RESOURCE = LIFEHUB_ORIGIN + '/achievement'
-export const SCOPE = 'achievement:inbox'
+export const SCOPE = 'achievement:inbox achievement:board'
 const API = LIFEHUB_ORIGIN + '/achievement/v1'
 /** Written by public/lifehub/index.html. */
 export const CALLBACK_KEY = 'achievement.lifehub.callback.v1'
@@ -240,6 +241,8 @@ export function connectAvailable(loc) {
   const app = new URL(APP_URL)
   return loc.origin === app.origin && loc.pathname.startsWith(app.pathname)
 }
+/** Forget the tokens (the connection is refused for good). The app shows 「다시 연결」. */
+export const dropTokens = deps => deps.storage.removeItem(TOKENS_KEY)
 export const isConnected = deps => typeof readJson(deps.storage, TOKENS_KEY)?.refresh_token === 'string'
 
 export async function beginConnect(deps) {
@@ -268,6 +271,10 @@ async function tokenRequest(deps, params) {
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
     if (body.error === 'invalid_grant') {
+      // Another tab or request may already have rotated the refresh token we used; then the stored one is good.
+      const current = readJson(deps.storage, TOKENS_KEY)
+      if (params.grant_type === 'refresh_token' && typeof current?.refresh_token === 'string' &&
+        current.refresh_token !== params.refresh_token) return current
       deps.storage.removeItem(TOKENS_KEY)
       throw new LifeHubError('not_connected', 'Life Hub 연결이 만료됐어요. 다시 연결해 주세요.')
     }
@@ -302,11 +309,21 @@ export async function completeStoredCallback(deps) {
   return true
 }
 
-async function accessToken(deps, force = false) {
+// One refresh at a time per storage: the refresh token may rotate, so two requests refreshing together
+// would make the second one fail and look like a revoked connection.
+const refreshing = new WeakMap()
+
+export async function accessToken(deps, force = false) {
   const tokens = readJson(deps.storage, TOKENS_KEY)
   if (!tokens?.refresh_token) throw new LifeHubError('not_connected', 'Life Hub에 연결되어 있지 않아요.')
   if (!force && tokens.access_expires_at - 60_000 > deps.now()) return tokens.access_token
-  return (await tokenRequest(deps, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token })).access_token
+  let pending = refreshing.get(deps.storage)
+  if (!pending) {
+    pending = tokenRequest(deps, { grant_type: 'refresh_token', refresh_token: tokens.refresh_token })
+      .finally(() => refreshing.delete(deps.storage))
+    refreshing.set(deps.storage, pending)
+  }
+  return (await pending).access_token
 }
 
 async function api(deps, method, path, body) {
