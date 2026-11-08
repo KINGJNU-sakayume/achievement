@@ -4,6 +4,8 @@ import { useUI } from '@/context/UIContext.jsx'
 import { formatNumber } from '@/utils/formatters.js'
 import { InfoIcon } from '@/components/Icons.jsx'
 import { tierLabel } from '@/constants/tiers.js'
+import { takeBoardHint } from '@/board/upload.js'
+import { useBoardUpload } from '@/board/useBoardUpload.js'
 import {
   achievementFor, autoApplyEnabled, autoPlan, beginConnect, browserDeps, completeStoredCallback, connectAvailable,
   disconnect as disconnectHub, draftFor, isConnected, LifeHubError, matchCategory, recordIdFor, rejectLocally,
@@ -38,6 +40,8 @@ export function LifeHubProvider({ children }) {
   const categoriesRef = useRef(categories)
   useEffect(() => { categoriesRef.current = categories }, [categories])
   const [autoApply, setAutoApplyState] = useState(() => autoApplyEnabled(browserDeps()))
+  const board = useBoardUpload({ records, achievements, categories, connected })
+  const { boardReconnected } = board
   const lastSync = useRef(0)
 
   const sync = useCallback(async (extraRecords = [], extraAchievements = []) => {
@@ -95,7 +99,10 @@ export function LifeHubProvider({ children }) {
         if (done) {
           setConnected(true)
           setNeedsReconnect(false)
-          setNotice('Life Hub에 연결했어요.')
+          boardReconnected()
+          setNotice(takeBoardHint(browserDeps())
+            ? 'Life Hub에 연결했어요. 보드에 올리려면 설정에서 "이 기기에서 보드에 올리기"를 켜 주세요.'
+            : 'Life Hub에 연결했어요.')
           setCallbackDone(true)
         }
         sync()
@@ -106,7 +113,7 @@ export function LifeHubProvider({ children }) {
         setCallbackDone(true)
       })
     return () => { active = false }
-  }, [sync])
+  }, [sync, boardReconnected])
 
   // Coming back to the app picks up new proposals, at most once a minute.
   useEffect(() => {
@@ -181,7 +188,8 @@ export function LifeHubProvider({ children }) {
   const value = useMemo(() => ({
     connected, status, retrying, callbackDone, proposals, syncing, error, notice, canConnect: connectAvailable(window.location), autoApply, categories,
     sync, reviewOptions, addAchievement, setAutoApply, reject, connect, disconnect, dismissNotice: () => setNotice(null),
-  }), [connected, status, retrying, callbackDone, proposals, syncing, error, notice, autoApply, categories, sync, reviewOptions, addAchievement, setAutoApply, reject, connect, disconnect])
+    boardEnabled: board.boardEnabled, setBoardEnabled: board.setBoardEnabled, boardNeedsReconnect: board.boardNeedsReconnect,
+  }), [board.boardEnabled, board.setBoardEnabled, board.boardNeedsReconnect, connected, status, retrying, callbackDone, proposals, syncing, error, notice, autoApply, categories, sync, reviewOptions, addAchievement, setAutoApply, reject, connect, disconnect])
 
   return <LifeHubContext.Provider value={value}>{children}</LifeHubContext.Provider>
 }
@@ -274,7 +282,10 @@ function StatusLine({ tone, children }) {
 
 /** Settings section body (title: 「Life Hub」): connect, status, sync now, disconnect, auto-apply. */
 export function LifeHubSettings() {
-  const { connected, status, retrying, syncing, canConnect, connect, disconnect, sync, autoApply, setAutoApply } = useLifeHub()
+  const {
+    connected, status, retrying, syncing, canConnect, connect, disconnect, sync, autoApply, setAutoApply,
+    boardEnabled, setBoardEnabled, boardNeedsReconnect,
+  } = useLifeHub()
   if (status === 'attention') {
     return (
       <div className="space-y-3">
@@ -310,6 +321,22 @@ export function LifeHubSettings() {
           <span className="block text-xs text-ink-3">Claude 카드에서 승인한 기록·업적을 카테고리가 정확할 때 바로 저장해요.</span>
         </span>
       </label>
+      <label htmlFor="lifehub-board" className="flex items-start gap-2.5 cursor-pointer">
+        <input id="lifehub-board" type="checkbox" checked={boardEnabled} onChange={e => setBoardEnabled(e.target.checked)} className="mt-1 w-4 h-4 accent-accent" />
+        <span className="min-w-0">
+          <span className="block text-base text-ink">이 기기에서 보드에 올리기</span>
+          <span className="block text-xs text-ink-3">
+            최근 취득한 업적 이름·등급·카테고리 이름·날짜와 카테고리 채움 수만 올려요. 기록·메모·사진은 올리지 않아요.
+            Life Hub에는 목록이 하나만 남아서, 다른 기기가 올린 목록을 덮어써요. 한 기기에서만 켜 두세요.
+          </span>
+        </span>
+      </label>
+      {boardNeedsReconnect && (
+        <div className="rounded-xl bg-warn-soft px-3.5 py-3 text-sm text-ink space-y-2.5">
+          <p>보드에 올리려면 Life Hub에 다시 연결해 주세요. 지금 연결과 기록은 그대로예요.</p>
+          <button type="button" className="btn btn-primary btn-sm" onClick={connect}>다시 연결</button>
+        </div>
+      )}
     </div>
   )
 }
