@@ -21,6 +21,7 @@ npm install
 npm run dev      # 개발 서버 (http://localhost:5173/achievement/)
 npm test         # 업적 엔진·저장 형식·기본 업적 목록 테스트 (Vitest)
 npm run build    # 배포용 빌드 → dist/
+npm run preview  # 빌드 결과(dist/)를 로컬에서 확인
 npm run catalog:snapshot  # 기본 업적 목록을 바꿀 때 (docs/achievement-system.md 8장)
 ```
 
@@ -112,6 +113,13 @@ src/
 │   └── catalogHistory.js        # 예전 기본 목록의 스냅숏, 목록 버전
 ├── pages/                       # 홈(Dashboard), 기록(RecordHub), 업적(AchievementManagement), 진열장(AchievementShowcase)
 └── components/                  # 화면 조각 (Modal, Medal, AchievementCard, RecordEditorModal …)
+```
+
+```
+scripts/snapshot-catalog.mjs   기본 업적 목록의 스냅숏·digest 갱신 (npm run catalog:snapshot)
+public/                      아이콘, Life Hub 연결 콜백(lifehub/)과 클라이언트 정보(lifehub-client.json)
+.github/workflows/           check.yml(검사) · deploy.yml(GitHub Pages 배포)
+prompt-achievement.revised.md  Life Board 보드 타일 기능을 추가할 때 쓴 작업 프롬프트(보관용)
 ```
 
 화면 스타일은 Tailwind CSS와 `src/index.css`의 색상 토큰(라이트/다크)으로 관리합니다.
